@@ -343,14 +343,17 @@ EXEC(N'
 
         public static void BaselineV2_SeedData(this MigrationBuilder migrationBuilder)
         {
-            var seedDate = DateTime.Now;
+            var seedDateUtc = DateTime.UtcNow;
+            // Define a SQL-friendly, unambiguous date format string
+            string sqlFormattedSeedDate = seedDateUtc.ToString("yyyy-MM-ddTHH:mm:ss");
+
             migrationBuilder.Sql(@$"
 INSERT INTO ValueTypes
     (ValueType,CreateDate,HTMLType)
 VALUES 
-    ('Int','{seedDate}','int'),
-    ('String','{seedDate}','string'),
-    ('Date','{seedDate}','date')
+    ('Int','{sqlFormattedSeedDate}','int'),
+    ('String','{sqlFormattedSeedDate}','string'),
+    ('Date','{sqlFormattedSeedDate}','date')
 ");
           
             migrationBuilder.Sql(@$"INSERT INTO Roles (name) VALUES ('PublisherAdmin')");
@@ -359,9 +362,9 @@ VALUES
 INSERT INTO Events
 	(EventsName,IsActive,CreateDate)
 VALUES
-    ('Activate',1,'{seedDate}'),
-	('Unsubscribe',1,'{seedDate}'),
-	('Pending Activation',1,'{seedDate}')
+    ('Activate',1,'{sqlFormattedSeedDate}'),
+	('Unsubscribe',1,'{sqlFormattedSeedDate}'),
+	('Pending Activation',1,'{sqlFormattedSeedDate}')
 ");
 
             migrationBuilder.Sql(@$"
@@ -404,10 +407,10 @@ GO");
 INSERT INTO EmailTemplate
 	([Status],[Description],[InsertDate],[TemplateBody],[Subject],[IsActive])
 VALUES
-    ('Failed','Failed','{seedDate}', '{FAILED_EMAIL_TEMPLATE}','Failed',1),
-	('PendingActivation','Pending Activation','{seedDate}', '{PENDINGACTIVATION_EMAIL_TEMPLATE}','Pending Activation',1),
-	('Subscribed','Subscribed','{seedDate}', '{SUBSCRIBED_EMAIL_TEMPLATE}','Subscribed',1),
-	('Unsubscribed','Unsubscribed','{seedDate}', '{UNSUBSCRIBED_EMAIL_TEMPLATE}','Unsubscribed',1)
+    ('Failed','Failed','{sqlFormattedSeedDate}', '{FAILED_EMAIL_TEMPLATE}','Failed',1),
+	('PendingActivation','Pending Activation','{sqlFormattedSeedDate}', '{PENDINGACTIVATION_EMAIL_TEMPLATE}','Pending Activation',1),
+	('Subscribed','Subscribed','{sqlFormattedSeedDate}', '{SUBSCRIBED_EMAIL_TEMPLATE}','Subscribed',1),
+	('Unsubscribed','Unsubscribed','{sqlFormattedSeedDate}', '{UNSUBSCRIBED_EMAIL_TEMPLATE}','Unsubscribed',1)
 ");
 
         }

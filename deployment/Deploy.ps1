@@ -211,7 +211,7 @@ Write-Host "Starting SaaS Accelerator Deployment..."
 
 
 #region Check If SQL Server Exist
-$sql_exists = Get-AzureRmSqlServer -ServerName $SQLServerName -ResourceGroupName $ResourceGroupForDeployment -ErrorAction SilentlyContinue
+$sql_exists = Get-AzSqlServer -ServerName $SQLServerName -ResourceGroupName $ResourceGroupForDeployment -ErrorAction SilentlyContinue
 if ($sql_exists) 
 {
 	Write-Host ""
@@ -569,11 +569,53 @@ az webapp config set -g $ResourceGroupForDeployment -n $WebAppNamePortal --alway
 
 #region Deploy Code
 Write-host "📜 Deploy Code"
+Write-Host "Pausing for 240 seconds to allow AAD admin permissions to sync..."
+Start-Sleep -Seconds 240
 
 Write-host "   🔵 Deploy Database"
 Write-host "      ➡️ Generate SQL schema/data script"
 Set-Content -Path ../src/AdminSite/appsettings.Development.json -value "{`"ConnectionStrings`": {`"DefaultConnection`":`"$Connection`"}}"
 dotnet-ef migrations script  --output script.sql --idempotent --context SaaSKitContext --project ../src/DataAccess/DataAccess.csproj --startup-project ../src/AdminSite/AdminSite.csproj
+
+# --- START: MODIFICATIONS TO ADD DATABASE USER (Corrected: Direct connection, no USE statement) ---
+Write-host "      ➡️ Preparing to create database user for AAD Admin"
+$dbaccesstoken = (Get-AzAccessToken -ResourceUrl https://database.windows.net).Token
+# Ensure this captures the correct UPN, especially for guest users
+$UserPrincipalNameFromAAD = (az ad signed-in-user show --query userPrincipalName -o tsv) 
+
+Write-Host "      ➡️ Current AAD User for DB operations: $UserPrincipalNameFromAAD"
+Write-Host "      ➡️ Target Database for user creation: $SQLDatabaseName"
+
+# SQL Query WITHOUT the initial USE statement
+$CreateUserAndGrantPermissionsSql = @"
+IF NOT EXISTS (SELECT dp.name FROM sys.database_principals AS dp WHERE dp.name = N'$UserPrincipalNameFromAAD')
+BEGIN
+    CREATE USER [$UserPrincipalNameFromAAD] FROM EXTERNAL PROVIDER;
+    PRINT 'User [$UserPrincipalNameFromAAD] created in database [$SQLDatabaseName].';
+END
+ELSE
+BEGIN
+    PRINT 'User [$UserPrincipalNameFromAAD] already exists in database [$SQLDatabaseName].';
+END
+
+ALTER ROLE db_owner ADD MEMBER [$UserPrincipalNameFromAAD];
+PRINT 'User [$UserPrincipalNameFromAAD] added to db_owner role in database [$SQLDatabaseName].';
+"@
+
+Write-Host "      ➡️ Executing SQL directly against database '$SQLDatabaseName' to create user and grant permissions"
+try {
+    # Connect DIRECTLY to the target database $SQLDatabaseName
+    Invoke-Sqlcmd -Query $CreateUserAndGrantPermissionsSql -ServerInstance $ServerUri -Database $SQLDatabaseName -AccessToken $dbaccesstoken
+    Write-Host "      ✅ Successfully created/verified database user and permissions for $UserPrincipalNameFromAAD in $SQLDatabaseName."
+}
+catch {
+    Write-Error "🚨🚨 ERROR: Failed to create database user or grant permissions for $UserPrincipalNameFromAAD in $SQLDatabaseName. Exception: $($PSItem.Exception.Message)"
+    # You might want to exit here or handle the error appropriately
+    throw
+}
+# --- END: MODIFICATIONS TO ADD DATABASE USER (Corrected: Direct connection, no USE statement) ---
+
+
 Write-host "      ➡️ Execute SQL schema/data script"
 $dbaccesstoken = (Get-AzAccessToken -ResourceUrl https://database.windows.net).Token
 Invoke-Sqlcmd -InputFile ./script.sql -ServerInstance $ServerUri -database $SQLDatabaseName -AccessToken $dbaccesstoken
